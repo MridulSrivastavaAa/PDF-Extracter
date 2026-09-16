@@ -1,0 +1,147 @@
+# ==============================================================================
+# MoSPI PDF Extractor & Converter - .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Documentation & Architecture Guides (User-Specified)
+# ------------------------------------------------------------------------------
+docs/
+docs/**
+
+# ------------------------------------------------------------------------------
+# 2. Environment Variables, Secrets & Credentials
+# ------------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!*.env.example
+secrets/
+*.secret
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+credentials.json
+client_secret*.json
+token.json
+
+# ------------------------------------------------------------------------------
+# 3. User Uploads, Processed Data & Generated Exports
+# ------------------------------------------------------------------------------
+# Uploaded PDFs (contains proprietary/user files)
+backend/uploads/*
+!backend/uploads/.gitkeep
+uploads/
+*.pdf
+
+# Generated Excel spreadsheets, CSVs, and exports
+backend/exports/*
+!backend/exports/.gitkeep
+exports/
+*.xlsx
+*.xls
+*.csv
+test_output_*.xlsx
+
+# Temporary runtime storage
+temp/
+tmp/
+*.tmp
+
+# ------------------------------------------------------------------------------
+# 4. Python Bytecode, Caches & Virtual Environments
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Python packaging & distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ------------------------------------------------------------------------------
+# 5. Frontend & Node.js Artifacts
+# ------------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+dist/
+dist-ssr/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ------------------------------------------------------------------------------
+# 6. IDEs, Editors & AI Agent Caches
+# ------------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.sublime-project
+*.sublime-workspace
+.antigravity/
+.gemini/
+
+# ------------------------------------------------------------------------------
+# 7. Operating System Files
+# ------------------------------------------------------------------------------
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# General application logs
+logs/
+*.log

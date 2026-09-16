@@ -79,8 +79,15 @@ function App() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Extraction failed');
+        let errorDetail = `Extraction failed (Status: ${response.status})`;
+        try {
+          const errData = await response.json();
+          errorDetail = errData.detail || errorDetail;
+        } catch {
+          const text = await response.text();
+          if (text) errorDetail = text;
+        }
+        throw new Error(errorDetail);
       }
 
       const data = await response.json();
@@ -104,8 +111,15 @@ function App() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Sample extraction failed');
+        let errorDetail = `Sample extraction failed (Status: ${response.status})`;
+        try {
+          const errData = await response.json();
+          errorDetail = errData.detail || errorDetail;
+        } catch {
+          const text = await response.text();
+          if (text) errorDetail = text;
+        }
+        throw new Error(errorDetail);
       }
 
       const data = await response.json();

@@ -23,10 +23,26 @@ from core.universal_engine import extract_pdf_to_canonical_dataset
 from core.excel_exporter import export_records_to_styled_excel
 from core.classifier import classify_pdf_report
 
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-EXPORT_DIR = os.path.join(BASE_DIR, "exports")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(EXPORT_DIR, exist_ok=True)
+import tempfile
+
+def get_writable_dir(dir_name: str) -> str:
+    """Returns local dir if writable, else falls back to system temp directory (for Vercel/Lambda serverless)."""
+    local_dir = os.path.join(BASE_DIR, dir_name)
+    try:
+        os.makedirs(local_dir, exist_ok=True)
+        test_file = os.path.join(local_dir, ".writable_check")
+        with open(test_file, "w") as f:
+            f.write("ok")
+        os.remove(test_file)
+        return local_dir
+    except OSError:
+        temp_dir = os.path.join(tempfile.gettempdir(), "mospi_extractor", dir_name)
+        os.makedirs(temp_dir, exist_ok=True)
+        return temp_dir
+
+UPLOAD_DIR = get_writable_dir("uploads")
+EXPORT_DIR = get_writable_dir("exports")
+
 
 app = FastAPI(
     title="MoSPI PDF Extractor API",
@@ -106,10 +122,10 @@ async def extract_pdf(file: UploadFile = File(...)):
     clean_name = os.path.splitext(file.filename)[0]
     saved_pdf_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
     
-    with open(saved_pdf_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
     try:
+        with open(saved_pdf_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
         # Run universal extraction pipeline
         result = extract_pdf_to_canonical_dataset(saved_pdf_path)
         
@@ -132,7 +148,16 @@ async def extract_pdf(file: UploadFile = File(...)):
             "records_preview": result['records'][:200]  # First 200 for fast UI preview
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+    finally:
+        # Cleanup uploaded temporary PDF to keep serverless disk free
+        if os.path.exists(saved_pdf_path):
+            try:
+                os.remove(saved_pdf_path)
+            except Exception:
+                pass
 
 class SampleExtractRequest(BaseModel):
     sample_path: Optional[str] = None

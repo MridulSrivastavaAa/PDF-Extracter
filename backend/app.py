@@ -193,6 +193,16 @@ FRONTEND_DIST = os.path.abspath(os.path.join(BASE_DIR, "../frontend/dist"))
 if os.path.exists(FRONTEND_DIST):
     from fastapi.staticfiles import StaticFiles
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="static")
+else:
+    @app.get("/")
+    def root_fallback():
+        return {
+            "status": "online",
+            "service": "MoSPI Universal PDF Extractor API",
+            "docs": "/docs",
+            "health": "/api/health",
+            "message": "FastAPI backend is running! Build frontend (npm run build in frontend/) to serve UI dashboard."
+        }
 
 if __name__ == "__main__":
     import uvicorn

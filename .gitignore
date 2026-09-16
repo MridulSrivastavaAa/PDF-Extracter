@@ -94,11 +94,13 @@ share/python-wheels/
 # ------------------------------------------------------------------------------
 node_modules/
 frontend/node_modules/
-dist/
 dist-ssr/
-frontend/dist/
 frontend/dist-ssr/
 *.local
+# Allow frontend/dist bundle for deployment
+!frontend/dist/
+!frontend/dist/**
+
 
 # Package manager logs
 npm-debug.log*

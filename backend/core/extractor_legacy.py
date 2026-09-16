@@ -1,15 +1,16 @@
-"""
-Legacy Flash Report Parser (2001 – May 2024).
+﻿"""
+Legacy Flash Report Parser (2001 - May 2024).
 Extracts historical projects tracked via Milestone Ratios (Achieved / Total).
 Supports both:
-1. Era A (2001–2011): Sequential Serial-numbered projects ("1. NEW URANIUM ORE...") under Sector headings.
-2. Era B (2012–2024): OCMS-coded projects with codes like [N04000078] or (612786).
+1. Era A (2001-2011): Sequential Serial-numbered projects ("1. NEW URANIUM ORE...") under Sector headings.
+2. Era B (2012-2024): OCMS-coded projects with codes like [N04000078] or (612786).
 Strictly derives physical progress from government milestone ratios with no false defaults.
+Accurately extracts real project names, agencies, and states from OCMS project signatures.
 """
 
 import re
 import fitz
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from .schema import ProjectRecord, normalize_date, CAL_MONTH_MAP
 
 SECTORS = [
@@ -20,6 +21,18 @@ SECTORS = [
     'TELECOMMUNICATIONS', 'URBAN DEVELOPMENT', 'DEFENCE PRODUCTION',
     'WATER RESOURCES', 'FINANCE', 'INFORMATION TECHNOLOGY'
 ]
+
+INDIAN_STATES = {
+    'ANDAMAN & NICOBAR ISLANDS', 'ANDAMAN & NICOBAR', 'ANDHRA PRADESH', 'ARUNACHAL PRADESH',
+    'ASSAM', 'BIHAR', 'CHANDIGARH', 'CHHATTISGARH', 'CHHATISGARH', 'DADRA & NAGAR HAVELI',
+    'DAMAN & DIU', 'DELHI', 'GOA', 'GUJARAT', 'HARYANA', 'HIMACHAL PRADESH',
+    'JAMMU & KASHMIR', 'JAMMU AND KASHMIR', 'JHARKHAND', 'KARNATAKA', 'KERALA',
+    'LADAKH', 'LAKSHADWEEP', 'MADHYA PRADESH', 'MAHARASHTRA', 'MANIPUR',
+    'MEGHALAYA', 'MIZORAM', 'NAGALAND', 'ODISHA', 'ORISSA', 'PUDUCHERRY',
+    'PUNJAB', 'RAJASTHAN', 'SIKKIM', 'TAMIL NADU', 'TELANGANA', 'TRIPURA',
+    'UTTAR PRADESH', 'UTTARAKHAND', 'UTTARKHAND', 'UTTARANCHAL', 'WEST BENGAL',
+    'MULTI-STATE', 'MULTI STATE', 'CENTRAL', 'ALL INDIA'
+}
 
 ID_REGEX = re.compile(r'\[([Nn]?\d{6,10}[A-Za-z0-9_]*)\]|\(([Nn]\d{6,10}[A-Za-z0-9_]*\s*)\)|\(([0-9]{6,7}\s*)\)')
 
@@ -46,6 +59,72 @@ def parse_num(s: str):
         return float(c)
     except:
         return None
+
+def clean_state(raw: str) -> str:
+    """Extract and standardize Indian State from post-ID text like 'NPCIL,GUJARAT ,'."""
+    clean = re.sub(r'Central Sector Projects.*|Central Sector.*', '', raw, flags=re.I).strip(' ,;')
+    parts = [p.strip() for p in clean.split(',') if p.strip()]
+    state = ''
+    if len(parts) >= 2:
+        state = parts[1]
+    elif len(parts) == 1:
+        p_up = parts[0].upper()
+        if any(st in p_up for st in INDIAN_STATES):
+            state = parts[0]
+        elif 'MANGALORE' in p_up:
+            return 'KARNATAKA'
+            
+    state = re.sub(r'\s+(EPC|BOT|HAM|ITEM RATE|DBFOT|PPP|PKG|PACKAGE).*$', '', state, flags=re.I).strip()
+    s_up = state.upper()
+    if 'CHHATISGARH' in s_up:
+        return 'CHHATTISGARH'
+    if 'ORISSA' in s_up:
+        return 'ODISHA'
+    if 'UTTARANCHAL' in s_up or 'UTTARKHAND' in s_up:
+        return 'UTTARAKHAND'
+    if 'MULTI' in s_up:
+        return 'Multi-State'
+    if not state or s_up in ['CENTRAL', 'PORT']:
+        return 'Multi-State'
+    return state.upper()
+
+def extract_project_name(idx: int, all_lines: List[str]) -> str:
+    """Extract full project name by backward scan from the ID line to previous record / S.No."""
+    id_line = all_lines[idx]
+    m = ID_REGEX.search(id_line)
+    pre_id = id_line[:m.start()].strip() if m else ''
+    
+    name_lines = []
+    if pre_id:
+        pre_clean = re.sub(r'\s*-\s*$', '', pre_id).strip()
+        if pre_clean:
+            name_lines.append(pre_clean)
+            
+    k = idx - 1
+    collected_before = []
+    
+    while k >= max(0, idx - 14):
+        prev = all_lines[k]
+        m_sno_only = re.match(r'^(\d{1,4})$', prev)
+        m_sno_text = re.match(r'^(\d{1,4})\s+([A-Za-z].*)$', prev)
+        
+        if m_sno_only:
+            break
+        elif m_sno_text:
+            collected_before.insert(0, m_sno_text.group(2))
+            break
+        elif is_milestone(prev) or any(prev.upper() == s for s in SECTORS) or 'Detail of ongoing' in prev or 'TABLE-' in prev or 'Central Sector Projects' in prev:
+            break
+        else:
+            if re.search(r'^\d+\([OR]\)$', prev) or re.match(r'^\d{1,2}/(19\d\d|20\d\d)$', prev):
+                break
+            collected_before.insert(0, prev)
+        k -= 1
+        
+    full_name_parts = collected_before + name_lines
+    full_name = ' '.join(full_name_parts).strip()
+    full_name = re.sub(r'\s*-\s*$', '', full_name).strip()
+    return full_name
 
 def parse_legacy_pdf(pdf_path: str, month: str, year: int, fy: str) -> List[Dict[str, Any]]:
     """Extract all project records from a legacy Flash Report PDF."""
@@ -80,12 +159,12 @@ def parse_legacy_pdf(pdf_path: str, month: str, year: int, fy: str) -> List[Dict
                 all_lines.append(l)
     doc.close()
 
-    # 2. Try Era B: OCMS Coded Projects (2012–2024)
+    # 2. Try Era B: OCMS Coded Projects (2012-2024)
     records_ocms = _parse_era_b_ocms(all_lines, month, year, fy)
     if len(records_ocms) >= 15:
         return records_ocms
 
-    # 3. Try Era A: Serial-Numbered Sector Projects (2001–2011)
+    # 3. Try Era A: Serial-Numbered Sector Projects (2001-2011)
     records_serial = _parse_era_a_serial(all_lines, month, year, fy)
     if len(records_serial) >= len(records_ocms):
         return records_serial
@@ -93,7 +172,7 @@ def parse_legacy_pdf(pdf_path: str, month: str, year: int, fy: str) -> List[Dict
     return records_ocms
 
 def _parse_era_b_ocms(all_lines: List[str], month: str, year: int, fy: str) -> List[Dict[str, Any]]:
-    """Parser for Era B (2012–2024) reports with OCMS codes [N04000078] or (612786)."""
+    """Parser for Era B (2012-2024) reports with OCMS codes [N04000078] or (612786)."""
     records = []
     seen_ids = set()
     current_sector = "General"
@@ -111,96 +190,73 @@ def _parse_era_b_ocms(all_lines: List[str], month: str, year: int, fy: str) -> L
             i += 1
             continue
 
-        id_match = ID_REGEX.search(line)
-        if not id_match and i + 1 < len(all_lines): id_match = ID_REGEX.search(all_lines[i+1])
-        if not id_match and i + 2 < len(all_lines): id_match = ID_REGEX.search(all_lines[i+2])
-
-        if id_match and not any(k in line for k in ['TABLE', 'Costing Rs', 'Summary', 'Original /', 'Original Cost']):
-            proj_id = (id_match.group(1) or id_match.group(2) or id_match.group(3)).strip()
+        m = ID_REGEX.search(line)
+        if m and not any(k in line for k in ['TABLE', 'Costing Rs', 'Summary', 'Original /', 'Original Cost', 'Detail of ongoing']):
+            proj_id = (m.group(1) or m.group(2) or m.group(3)).strip()
             if proj_id in seen_ids:
                 i += 1
                 continue
 
-            name_parts = []
-            k = i - 1
-            while k >= max(0, i - 8):
-                if is_milestone(all_lines[k]) or is_date(all_lines[k]) or any(all_lines[k].upper() == s for s in SECTORS):
-                    break
-                if not all_lines[k].startswith('(') and not all_lines[k].startswith('['):
-                    name_parts.insert(0, all_lines[k])
-                k -= 1
-            proj_name = ' '.join(name_parts).strip()
-            if not proj_name:
-                proj_name = re.sub(r'\[[^\]]*\]|\([^\)]*\)', '', line).strip()
+            proj_name = extract_project_name(i, all_lines)
+            post_id = line[m.end():].strip()
+            state = clean_state(post_id)
 
+            # Find Date of Approval token (DOA)
             doa_idx = -1
-            for k_scan in range(i, min(i+10, len(all_lines))):
+            for k_scan in range(i, min(i + 6, len(all_lines))):
                 if is_date(all_lines[k_scan]) or all_lines[k_scan] in ['-', '(-)', '(N.A.)', '{N.A.}', 'N.A.']:
-                    if k_scan+1 < len(all_lines) and (is_date(all_lines[k_scan+1]) or any(c.isdigit() for c in all_lines[k_scan+1])):
-                        doa_idx = k_scan
-                        break
+                    doa_idx = k_scan
+                    break
 
             if doa_idx != -1:
                 doa = all_lines[doa_idx]
-                k_tok = doa_idx + 1
-                field_tokens = []
-                while k_tok < len(all_lines):
-                    l_val = all_lines[k_tok]
-                    if any(l_val.upper() == s for s in SECTORS) or l_val.startswith('Total') or ID_REGEX.search(l_val):
-                        break
-                    field_tokens.append(l_val)
-                    k_tok += 1
-                    if is_milestone(l_val) or len(field_tokens) >= 15:
+                toks = []
+                milestone_tok = ''
+                for k_tok in range(doa_idx + 1, min(doa_idx + 16, len(all_lines))):
+                    tok = all_lines[k_tok]
+                    toks.append(tok)
+                    if is_milestone(tok):
+                        milestone_tok = tok
                         break
 
-                dates = []
-                costs = []
-                milestones = ""
-                for t in reversed(field_tokens):
-                    if is_milestone(t):
-                        milestones = t
-                        break
+                # Positionally aligned costs and dates
+                orig_cost = parse_num(toks[0]) if len(toks) >= 1 else None
+                rev_cost = parse_num(toks[1]) if len(toks) >= 2 else None
+                antic_cost = parse_num(toks[2]) if len(toks) >= 3 else None
+                cum_exp = parse_num(toks[3]) if len(toks) >= 4 else None
 
-                for t in field_tokens:
-                    tc = t.strip()
-                    if is_milestone(tc): continue
-                    if is_date(tc):
-                        dates.append(clean_tok(tc).replace('-', '/'))
-                        continue
-                    m_c = parse_num(tc)
-                    if m_c is not None and '/' not in tc:
-                        costs.append(m_c)
+                orig_doc = toks[4].strip() if len(toks) >= 5 and toks[4] != '-' else ''
+                rev_doc = toks[5].strip() if len(toks) >= 6 and toks[5] != '-' else ''
+                antic_doc = toks[6].strip() if len(toks) >= 7 and toks[6] != '-' else ''
 
-                orig_doc = dates[0] if dates and dates[0] != '-' else ""
-                antic_doc = dates[-1] if len(dates) >= 2 and dates[-1] != '-' else orig_doc
-                orig_cost = costs[0] if len(costs) >= 1 else None
-                rev_cost = costs[1] if len(costs) >= 2 else None
-                antic_cost = costs[2] if len(costs) >= 3 else (rev_cost or orig_cost)
-                cum_exp = costs[3] if len(costs) >= 4 else (costs[-1] if len(costs) >= 2 else None)
+                antic_cost_final = antic_cost or rev_cost or orig_cost
+                antic_doc_final = antic_doc or rev_doc or orig_doc
 
+                # Strictly calculate Physical Progress from Milestone ratio
                 phys_prog = "0.00%"
-                if milestones and '/' in milestones:
-                    m = re.match(r'^(\d+)\s*/\s*(\d+)$', milestones)
-                    if m:
-                        ach, tot = float(m.group(1)), float(m.group(2))
+                if milestone_tok and '/' in milestone_tok:
+                    m_m = re.match(r'^(\d+)\s*/\s*(\d+)$', milestone_tok.strip())
+                    if m_m:
+                        ach, tot = float(m_m.group(1)), float(m_m.group(2))
                         pct = min(100.0, (ach / tot) * 100.0) if tot > 0 else 0.0
                         phys_prog = f"{pct:.2f}%"
 
                 rec = ProjectRecord(
                     project_id=proj_id,
                     legacy_ocms_code=proj_id if proj_id.startswith('N') else "",
+                    PMGID="",
                     project_name=proj_name or f"Project {proj_id}",
                     ministry_department=current_sector,
-                    state="Central / Multi-State",
+                    state=state,
                     Date_of_approval=normalize_date(doa),
                     Original_cost=orig_cost,
                     revised_cost=rev_cost,
-                    Anticipated_cost=antic_cost,
+                    Anticipated_cost=antic_cost_final,
                     cumulative_expenditure=cum_exp,
                     cost_revision_flag="Yes" if (rev_cost and orig_cost and rev_cost != orig_cost) else "No",
                     original_date_of_commissioning=normalize_date(orig_doc),
-                    anticipated_commissioning=normalize_date(antic_doc),
-                    milestone_ratio=milestones,
+                    anticipated_commissioning=normalize_date(antic_doc_final),
+                    milestone_ratio=milestone_tok,
                     physical_progress=phys_prog,
                     financial_year=fy,
                     month=month,
@@ -209,13 +265,13 @@ def _parse_era_b_ocms(all_lines: List[str], month: str, year: int, fy: str) -> L
                 )
                 records.append(rec.to_dict())
                 seen_ids.add(proj_id)
-                i = k_tok
+                i = doa_idx + len(toks)
                 continue
         i += 1
     return records
 
 def _parse_era_a_serial(all_lines: List[str], month: str, year: int, fy: str) -> List[Dict[str, Any]]:
-    """Parser for Era A (2001–2011) reports with sequential numbered projects under Sectors."""
+    """Parser for Era A (2001-2011) reports with sequential numbered projects under Sectors."""
     records = []
     current_sector = "General"
     i = 0
@@ -250,6 +306,13 @@ def _parse_era_a_serial(all_lines: List[str], month: str, year: int, fy: str) ->
                 i += 1
 
             full_name = ' '.join(name_parts).strip()
+
+            # Identify state from project name or tokens if present
+            state = "Multi-State"
+            for st in INDIAN_STATES:
+                if st in full_name.upper():
+                    state = st
+                    break
 
             # Collect tokens for project until milestone or next project
             tokens = []
@@ -326,9 +389,10 @@ def _parse_era_a_serial(all_lines: List[str], month: str, year: int, fy: str) ->
             rec = ProjectRecord(
                 project_id=gen_id,
                 legacy_ocms_code="",
+                PMGID="",
                 project_name=full_name or f"Project {sl_no}",
                 ministry_department=current_sector,
-                state="Central / Multi-State",
+                state=state,
                 Date_of_approval=normalize_date(doa),
                 Original_cost=orig_cost,
                 revised_cost=rev_cost,

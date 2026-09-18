@@ -295,6 +295,26 @@ function App() {
   const [streamAnimationKey, setStreamAnimationKey] = useState(0);
   const [isLiveStreamView, setIsLiveStreamView] = useState(true);
   const fileInputRef = useRef(null);
+  const consoleRef = useRef(null);
+  const resultsRef = useRef(null);
+
+  // Auto-scroll down smoothly when extraction starts (brings console into full view)
+  useEffect(() => {
+    if (isExtracting && consoleRef.current) {
+      setTimeout(() => {
+        consoleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [isExtracting]);
+
+  // Auto-scroll down smoothly when extraction completes (brings KPI cards & dataset table into view)
+  useEffect(() => {
+    if (extractionResult && resultsRef.current) {
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
+  }, [extractionResult]);
 
   // Pre-flight Month/Year Verification Modal State
   const [showPeriodModal, setShowPeriodModal] = useState(false);
@@ -713,11 +733,13 @@ function App() {
 
         {/* LIVE NEURAL EXTRACTION CONSOLE (Typewriter Loading Screen) */}
         {isExtracting && (
-          <LiveExtractionConsole 
-            fileName={activeFileName} 
-            month={selectedMonth} 
-            year={selectedYear} 
-          />
+          <div ref={consoleRef} style={{ scrollMarginTop: '90px' }}>
+            <LiveExtractionConsole 
+              fileName={activeFileName} 
+              month={selectedMonth} 
+              year={selectedYear} 
+            />
+          </div>
         )}
 
         {/* Dataset Sync & Reconciliation Success Notification */}
@@ -795,7 +817,7 @@ function App() {
 
         {/* Extraction Results */}
         {extractionResult && (
-          <section className="results-wrapper">
+          <section className="results-wrapper" ref={resultsRef} style={{ scrollMarginTop: '90px' }}>
             {/* KPI Summary Grid (Matching Nirmaan-Drishti MetricCards Design) */}
             <div className="metrics-grid">
               {/* Card 1: Dark Navy Total Projects */}
